@@ -1,7 +1,7 @@
 import java.io.*;
 import java.util.*;
 
-public class MainSimulador {
+public class Caso2 {
     private static final String CARPETA_CASOS = "casos";
 
     public static void main(String[] args) throws Exception {
