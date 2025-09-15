@@ -2,259 +2,286 @@ import java.io.*;
 import java.util.*;
 
 public class Caso2 {
-    private static final String CARPETA_CASOS = "casos";
-
     public static void main(String[] args) throws Exception {
         Scanner sc = new Scanner(System.in);
-        System.out.println("=== SIMULADOR DE MEMORIA VIRTUAL ===");
-        System.out.println("1. Generar archivos de referencias (proc<i>.txt)");
-        System.out.println("2. Ejecutar simulador de memoria");
-        System.out.print("Opción: ");
+        System.out.println("1. Generar procesos");
+        System.out.println("2. Simular memoria");
+        System.out.print("Digite la opcion: ");
         int opcion = sc.nextInt();
-        sc.nextLine(); // limpiar buffer
+        sc.nextLine();
 
         if (opcion == 1) {
-            System.out.print("Ingrese el archivo de configuración (ej: config.txt): ");
-            String configFile = sc.nextLine().trim();
-            ReferenceGenerator.generar(configFile);
+            System.out.print("Digite el nombre del archivo de configuracion: ");
+            String archivoConfig = sc.nextLine().trim();
+            Generador.generarArchivos(archivoConfig);
         } else if (opcion == 2) {
-            System.out.print("Ingrese el número total de marcos de memoria: ");
-            int totalFrames = sc.nextInt();
-            Simulator.ejecutarSimulador(totalFrames);
+            System.out.print("Digite el numero de marcos de memoria: ");
+            int marcosTotales = sc.nextInt();
+            Simulador.simular(marcosTotales);
         } else {
-            System.out.println("Opción inválida.");
+            System.out.println("Opcion incorrecta");
         }
     }
 }
 
-/* =======================
- * OPCIÓN 1: GENERADOR
- * ======================= */
-class ReferenceGenerator {
-    public static void generar(String configFile) throws Exception {
-        // Crear carpeta casos si no existe
+class Generador {
+    public static void generarArchivos(String config) throws Exception {
         File carpeta = new File("casos");
-        if (!carpeta.exists()) carpeta.mkdir();
+        if (!carpeta.exists()) {
+            carpeta.mkdir();
+        }
 
-        Map<String, String> map = parseConfig(configFile);
-        int TP = Integer.parseInt(map.get("TP"));
-        int NPROC = Integer.parseInt(map.get("NPROC"));
-        String[] parts = map.get("TAMS").split(",");
+        Map<String, String> datos = leerConfig(config);
+        int TP = Integer.parseInt(datos.get("TP"));
+        int NPROC = Integer.parseInt(datos.get("NPROC"));
+        String[] TAMS = datos.get("TAMS").split(",");
 
-        for (int p = 0; p < NPROC; p++) {
-            String[] rc = parts[p].trim().split("x");
-            int NF = Integer.parseInt(rc[0]);
-            int NC = Integer.parseInt(rc[1]);
+        for (int i = 0; i < NPROC; i++) {
+            String[] dato = TAMS[i].trim().split("x");
+            int NF = Integer.parseInt(dato[0]);
+            int NC = Integer.parseInt(dato[1]);
 
-            List<Long> dvs = new ArrayList<>();
-            long baseA = 0, baseB = 4L * NF * NC, baseC = 2L * baseB;
+            List<Long> direcciones = new ArrayList<>();
+            long baseA = 0;
+            long baseB = (long) 4 * NF * NC;
+            long baseC = (long) 2 * baseB;
 
-            for (int i = 0; i < NF; i++) {
-                for (int j = 0; j < NC; j++) {
-                    long idx = (long) i * NC + j;
-                    dvs.add(baseA + 4L * idx); // A
-                    dvs.add(baseB + 4L * idx); // B
-                    dvs.add(baseC + 4L * idx); // C
+            for (int f = 0; f < NF; f++) {
+                for (int c = 0; c < NC; c++) {
+                    long pos = (long) f * NC + c;
+                    direcciones.add(baseA + (long) 4 * pos);
+                    direcciones.add(baseB + (long) 4 * pos);
+                    direcciones.add(baseC + (long) 4 * pos);
                 }
             }
 
-            long NR = dvs.size();
-            long bytesTotal = 3L * NF * NC * 4L;
+            long NR = direcciones.size();
+            long bytesTotal = (long) 3 * NF * NC * (long) 4;
             long NP = (bytesTotal + TP - 1) / TP;
 
-            String filename = "casos/proc" + p + ".txt";
-            try (PrintWriter pw = new PrintWriter(new FileWriter(filename))) {
+            String nombreArchivo = "casos/proceso" + i + ".txt";
+            try (PrintWriter pw = new PrintWriter(new FileWriter(nombreArchivo))) {
                 pw.printf("TP=%d NF=%d NC=%d NR=%d NP=%d\n", TP, NF, NC, NR, NP);
-                for (long dv : dvs) pw.println(dv);
+                for (long dir : direcciones) {
+                    pw.println(dir);
+                }
             }
-            System.out.println("Generado: " + filename + " (NR=" + NR + ", NP=" + NP + ")");
+            System.out.println("Generado: " + nombreArchivo + " (NR=" + NR + ", NP=" + NP + ")");
         }
     }
 
-    static Map<String, String> parseConfig(String cfg) throws Exception {
-        Map<String, String> m = new HashMap<>();
-        try (BufferedReader br = new BufferedReader(new FileReader(cfg))) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                line = line.trim();
-                if (line.isEmpty() || line.startsWith("#")) continue;
-                String[] kv = line.split("=", 2);
-                if (kv.length == 2) m.put(kv[0].trim(), kv[1].trim());
+    static Map<String, String> leerConfig(String archivo) throws Exception {
+        Map<String, String> datos = new HashMap<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(archivo))) {
+            String linea;
+            while ((linea = br.readLine()) != null) {
+                linea = linea.trim();
+                String[] partes = linea.split("=", 2);
+                if (partes.length == 2) {
+                    datos.put(partes[0].trim(), partes[1].trim());
+                }
             }
         }
-        return m;
+        return datos;
     }
 }
 
-/* =======================
- * OPCIÓN 2: SIMULADOR
- * ======================= */
-class Simulator {
-    static long timeCounter = 1L;
+class Simulador {
+    static long accesos = (long) 1; 
 
-    static class Frame {
-        int id, ownerPid, vpage;
-        long lastUsed;
-        Frame(int id, int ownerPid) {
-            this.id = id; this.ownerPid = ownerPid;
-            this.vpage = -1; this.lastUsed = 0L;
+    static class Marco {
+        int idMarco;
+        int idProceso;
+        int pagina;
+        long ultimoUso;
+
+        Marco(int id, int idProc) {
+            this.idMarco = id;
+            this.idProceso = idProc;
+            this.pagina = -1;
+            this.ultimoUso = (long) 0;
         }
     }
 
     static class Proceso {
-        int pid, NF, NC, TP, NP;
-        List<Integer> dvs = new ArrayList<>();
-        int[] pageTable;
-        int currentIndex = 0;
-        List<Integer> assignedFrames = new ArrayList<>();
-        long references = 0, pageFaults = 0, swapAccesses = 0;
-        Proceso(int pid, int NF, int NC, int TP, int NP) {
-            this.pid = pid; this.NF = NF; this.NC = NC; this.TP = TP; this.NP = NP;
-            this.pageTable = new int[NP];
-            Arrays.fill(this.pageTable, -1);
+        int idProceso, NF, NC, TP, NP;
+        List<Integer> direcciones = new ArrayList<>();
+        int[] paginas;
+        int posActual = 0;
+        List<Integer> misMarcos = new ArrayList<>();
+        long accesos = 0, fallos = 0, accesosSwap = 0;
+
+        Proceso(int id, int NF, int NC, int TP, int NP) {
+            this.idProceso = id;
+            this.NF = NF;
+            this.NC = NC;
+            this.TP = TP;
+            this.NP = NP;
+            this.paginas = new int[NP];
+            Arrays.fill(this.paginas, -1);
         }
-        boolean finished() { return currentIndex >= dvs.size(); }
+
+        boolean terminado() {
+            return posActual >= direcciones.size();
+        }
     }
 
-    Frame[] frames;
-    Proceso[] procs;
+    Marco[] marcos;
+    Proceso[] procesos;
 
-    static void ejecutarSimulador(int totalFrames) throws Exception {
-        Simulator sim = new Simulator();
+    static void simular(int totalMarcos) throws Exception {
+        Simulador sim = new Simulador();
         sim.cargarProcesos();
-        sim.asignarMarcos(totalFrames);
+        sim.asignarMarcos(totalMarcos);
         sim.ejecutar();
-        sim.imprimirStats();
+        sim.mostrarResultados();
     }
 
     void cargarProcesos() throws Exception {
         File carpeta = new File("casos");
         File[] archivos = carpeta.listFiles((d, name) -> name.endsWith(".txt"));
         if (archivos == null || archivos.length == 0) {
-            throw new RuntimeException("No se encontraron casos en la carpeta 'casos'.");
+            throw new RuntimeException("No se encontraron procesos en la carpeta");
         }
 
-        procs = new Proceso[archivos.length];
-        for (int p = 0; p < archivos.length; p++) {
-            File archivo = archivos[p];
+        procesos = new Proceso[archivos.length];
+        for (int i = 0; i < archivos.length; i++) {
+            File archivo = archivos[i];
             try (BufferedReader br = new BufferedReader(new FileReader(archivo))) {
-                String header = br.readLine();
-                Map<String, Integer> h = parseHeader(header);
-                int TP = h.get("TP"), NF = h.get("NF"), NC = h.get("NC"), NP = h.get("NP");
-                Proceso ps = new Proceso(p, NF, NC, TP, NP);
-                String line;
-                while ((line = br.readLine()) != null) ps.dvs.add(Integer.parseInt(line.trim()));
-                ps.references = ps.dvs.size();
-                procs[p] = ps;
+                String cabecera = br.readLine();
+                Map<String, Integer> datos = leerCabecera(cabecera);
+                int TP = datos.get("TP"), NF = datos.get("NF"), NC = datos.get("NC"), NP = datos.get("NP");
+                Proceso p = new Proceso(i, NF, NC, TP, NP);
+                String linea;
+                while ((linea = br.readLine()) != null) {
+                    p.direcciones.add(Integer.parseInt(linea.trim()));
+                }
+                p.accesos = p.direcciones.size();
+                procesos[i] = p;
             }
         }
     }
 
-    static Map<String, Integer> parseHeader(String header) {
-        Map<String, Integer> m = new HashMap<>();
-        String[] toks = header.split("\\s+");
-        for (String t : toks) {
+    static Map<String, Integer> leerCabecera(String cabecera) {
+        Map<String, Integer> datos = new HashMap<>();
+        String[] partes = cabecera.split("\\s+");
+        for (String t : partes) {
             if (t.isEmpty()) continue;
-            String[] kv = t.split("=", 2);
-            if (kv.length == 2) m.put(kv[0], Integer.parseInt(kv[1]));
+            String[] dato = t.split("=", 2);
+            if (dato.length == 2) datos.put(dato[0], Integer.parseInt(dato[1]));
         }
-        return m;
+        return datos;
     }
 
-    void asignarMarcos(int totalFrames) {
-        int per = totalFrames / procs.length;
-        frames = new Frame[totalFrames];
+    void asignarMarcos(int totalMarcos) {
+        int marcosPorProceso = totalMarcos / procesos.length;
+        marcos = new Marco[totalMarcos];
         int id = 0;
-        for (int p = 0; p < procs.length; p++) {
-            for (int k = 0; k < per; k++) {
-                frames[id] = new Frame(id, p);
-                procs[p].assignedFrames.add(id);
+        for (int i = 0; i < procesos.length; i++) {
+            for (int j = 0; j < marcosPorProceso; j++) {
+                marcos[id] = new Marco(id, i);
+                procesos[i].misMarcos.add(id);
                 id++;
             }
         }
-        System.out.println("Marcos totales: " + totalFrames + ", por proceso: " + per);
+        System.out.println("Marcos totales: " + totalMarcos + ", por proceso: " + marcosPorProceso);
     }
 
     void ejecutar() {
         Queue<Integer> cola = new LinkedList<>();
-        for (int i = 0; i < procs.length; i++) cola.add(i);
+        for (int i = 0; i < procesos.length; i++) cola.add(i);
 
         while (!cola.isEmpty()) {
-            int pid = cola.poll();
-            Proceso ps = procs[pid];
-            if (ps.finished()) { reasignarMarcos(pid); continue; }
+            int idProc = cola.poll();
+            Proceso p = procesos[idProc];
+            if (p.terminado()) {
+                liberarMarcos(idProc);
+                continue;
+            }
 
-            int dv = ps.dvs.get(ps.currentIndex);
-            int vpage = dv / ps.TP;
-            int frameIndex = ps.pageTable[vpage];
+            int dir = p.direcciones.get(p.posActual);
+            int numPagina = dir / p.TP;
+            int marcoAsignado = p.paginas[numPagina];
 
-            if (frameIndex != -1) { // hit
-                frames[frameIndex].lastUsed = timeCounter++;
-                ps.currentIndex++;
-                if (!ps.finished()) cola.add(pid);
-            } else { // fallo
-                ps.pageFaults++;
-                Integer freeFrame = buscarLibre(ps);
-                if (freeFrame != null) {
-                    cargarPagina(freeFrame, pid, vpage);
-                    ps.pageTable[vpage] = freeFrame;
-                    ps.swapAccesses += 1;
+            if (marcoAsignado != -1) {
+                marcos[marcoAsignado].ultimoUso = accesos++;
+                p.posActual++;
+                if (!p.terminado()) cola.add(idProc);
+            } else {
+                p.fallos++;
+                Integer libre = buscarLibre(p);
+                if (libre != null) {
+                    cargarPagina(libre, idProc, numPagina);
+                    p.paginas[numPagina] = libre;
+                    p.accesosSwap += 1;
                 } else {
-                    int victima = seleccionarLRU(ps);
-                    int oldVpage = frames[victima].vpage;
-                    if (oldVpage != -1) ps.pageTable[oldVpage] = -1;
-                    cargarPagina(victima, pid, vpage);
-                    ps.pageTable[vpage] = victima;
-                    ps.swapAccesses += 2;
+                    int victima = seleccionarLRU(p);
+                    int paginaVieja = marcos[victima].pagina;
+                    if (paginaVieja != -1) p.paginas[paginaVieja] = -1;
+                    cargarPagina(victima, idProc, numPagina);
+                    p.paginas[numPagina] = victima;
+                    p.accesosSwap += 2;
                 }
-                cola.add(pid);
+                cola.add(idProc);
             }
         }
     }
 
-    private Integer buscarLibre(Proceso ps) {
-        for (int fid : ps.assignedFrames) if (frames[fid].vpage == -1) return fid;
+    private Integer buscarLibre(Proceso p) {
+        for (int m : p.misMarcos) {
+            if (marcos[m].pagina == -1) return m;
+        }
         return null;
     }
-    private int seleccionarLRU(Proceso ps) {
-        long min = Long.MAX_VALUE; int victima = -1;
-        for (int fid : ps.assignedFrames) {
-            if (frames[fid].lastUsed < min) { min = frames[fid].lastUsed; victima = fid; }
+
+    private int seleccionarLRU(Proceso p) {
+        long minimo = Long.MAX_VALUE;
+        int victima = -1;
+        for (int m : p.misMarcos) {
+            if (marcos[m].ultimoUso < minimo) {
+                minimo = marcos[m].ultimoUso;
+                victima = m;
+            }
         }
         return victima;
     }
-    private void cargarPagina(int fid, int pid, int vpage) {
-        frames[fid].ownerPid = pid;
-        frames[fid].vpage = vpage;
-        frames[fid].lastUsed = timeCounter++;
+
+    private void cargarPagina(int m, int idProc, int numPagina) {
+        marcos[m].idProceso = idProc;
+        marcos[m].pagina = numPagina;
+        marcos[m].ultimoUso = accesos++;
     }
-    private void reasignarMarcos(int pidTerm) {
-        Proceso term = procs[pidTerm];
-        if (!term.assignedFrames.isEmpty()) {
-            int mejor = -1; long maxFaults = -1;
-            for (Proceso p : procs) {
-                if (p.pid == pidTerm || p.finished()) continue;
-                if (p.pageFaults > maxFaults) { maxFaults = p.pageFaults; mejor = p.pid; }
+
+    private void liberarMarcos(int idProc) {
+        Proceso p = procesos[idProc];
+        if (!p.misMarcos.isEmpty()) {
+            int candidato = -1;
+            long masFallos = -1;
+            for (Proceso otro : procesos) {
+                if (otro.idProceso == idProc || otro.terminado()) continue;
+                if (otro.fallos > masFallos) {
+                    masFallos = otro.fallos;
+                    candidato = otro.idProceso;
+                }
             }
-            if (mejor == -1) return;
-            for (int fid : new ArrayList<>(term.assignedFrames)) {
-                frames[fid].ownerPid = mejor;
-                frames[fid].vpage = -1;
-                frames[fid].lastUsed = 0L;
-                procs[mejor].assignedFrames.add(fid);
+            if (candidato == -1) return;
+            for (int m : new ArrayList<>(p.misMarcos)) {
+                marcos[m].idProceso = candidato;
+                marcos[m].pagina = -1;
+                marcos[m].ultimoUso = (long) 0;
+                procesos[candidato].misMarcos.add(m);
             }
-            term.assignedFrames.clear();
+            p.misMarcos.clear();
         }
     }
 
-    void imprimirStats() {
-        System.out.println("\n=== Estadísticas finales ===");
-        for (Proceso p : procs) {
-            long hits = p.references - p.pageFaults;
-            double tasaFallos = p.references > 0 ? (double) p.pageFaults / p.references : 0;
-            double tasaExito = p.references > 0 ? (double) hits / p.references : 0;
-            System.out.printf("Proc %d: refs=%d, fallos=%d, swap=%d, tasaFallos=%.4f, tasaExito=%.4f\n",
-                    p.pid, p.references, p.pageFaults, p.swapAccesses, tasaFallos, tasaExito);
+    void mostrarResultados() {
+        for (Proceso p : procesos) {
+            long aciertos = p.accesos - p.fallos;
+            double tasaFallos = p.accesos > 0 ? (double) p.fallos / p.accesos : 0;
+            double tasaAciertos = p.accesos > 0 ? (double) aciertos / p.accesos : 0;
+            System.out.printf("Proceso %d: accesos=%d, fallos=%d, swap=%d, tasaFallos=%.4f, tasaAciertos=%.4f\n",
+                    p.idProceso, p.accesos, p.fallos, p.accesosSwap, tasaFallos, tasaAciertos);
         }
     }
 }
